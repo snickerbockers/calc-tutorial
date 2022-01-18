@@ -108,7 +108,8 @@ while (<>) {
                 push(@ast, \%newnode);
             } elsif (scalar(@ast) >= 2 &&
                      $ast[-1]{tp} eq 'PROD' &&
-                     $ast[-2]{tp} eq '-') {
+                     $ast[-2]{tp} eq '-' &&
+                     !(scalar(@ast) >= 3 && $ast[-3]{tp} eq 'SUM')) {
                 # reduce -prod to prod
                 my $lhs = pop(@ast);
                 pop(@ast);
