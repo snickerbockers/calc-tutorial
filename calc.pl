@@ -16,7 +16,7 @@ use v5.14;
 
 while (<>) {
     # first add whitespace around all operators then split around whitespace
-    s/([\+\-\/\*\(\)])/ \1 /g;
+    s/(\*\*|[\+\-\/\*\(\)])/ \1 /g;
     my @toks = split(/\s+/, $_);
 
     our @symbols;
@@ -25,6 +25,7 @@ while (<>) {
         if ($_ eq '+') { push @symbols, [ '+', $_ ]; }
         elsif ($_ eq '-') { push @symbols, [ '-', $_ ]; }
         elsif ($_ eq '/') { push @symbols, [ '/', $_ ]; }
+        elsif ($_ eq '**') { push @symbols, [ '**', $_ ] }
         elsif ($_ eq '*') { push @symbols, [ '*', $_ ]; }
         elsif ($_ eq '(') { push @symbols, [ '(', $_ ]; }
         elsif ($_ eq ')') { push @symbols, [ ')', $_ ]; }
@@ -58,8 +59,8 @@ while (<>) {
             # now reduce according to the rules described above
 
             if ($ast[-1]{tp} eq "VAL") {
-                # reduce value to product
-                $ast[-1]{tp} = 'PROD';
+                # reduce value to exponential
+                $ast[-1]{tp} = 'EXPONENTIAL';
                 $ast[-1]{op} = 'LITERAL';
                 $ast[-1]{literal} = $ast[-1]{txt};
             } elsif (scalar(@ast) >= 2 &&
@@ -73,13 +74,28 @@ while (<>) {
                                 lhs => $lhs, rhs => $rhs );
                 push(@ast, \%newnode);
             } elsif (scalar(@ast) >= 3 &&
+                     $ast[-1]{tp} eq 'EXPONENTIAL' &&
+                     $ast[-2]{tp} eq '**' &&
+                     $ast[-3]{tp} eq 'EXPONENTIAL') {
+                # reduce exponent ** exponent to exponent
+                my $rhs = pop(@ast);
+                pop(@ast);
+                my $lhs = pop(@ast);
+                my %newnode = ( tp => 'EXPONENTIAL', op => "EXP",
+                                lhs => $lhs, rhs => $rhs );
+                push(@ast, \%newnode);
+            } elsif ($ast[-1]{tp} eq 'EXPONENTIAL' &&
+                     (scalar(@symbols) == 0 || $symbols[0]->[0] ne '**')) {
+                # reduce lone exponential to product
+                $ast[-1]{tp} = 'PROD';
+            } elsif (scalar(@ast) >= 3 &&
                      $ast[-1]{tp} eq ')' &&
                      $ast[-2]{tp} eq 'SUM' &&
                      $ast[-3]{tp} eq '(') {
                 pop(@ast);
                 my $exp = pop(@ast);
                 pop(@ast);
-                $exp->{tp} = 'PROD';
+                $exp->{tp} = 'EXPONENTIAL';
                 push(@ast, $exp);
             } elsif (scalar(@ast) >= 3 &&
                      $ast[-1]{tp} eq 'PROD' &&
@@ -107,10 +123,11 @@ while (<>) {
                      $ast[-1]{tp} eq 'PROD' &&
                      $ast[-2]{tp} eq '-' &&
                      !(scalar(@ast) >= 3 && $ast[-3]{tp} eq 'SUM')) {
-                # reduce -prod to prod
+                # reduce -prod to exponential
+                # we reduce to exponential for stuff like x**-y==x**(-y)
                 my $lhs = pop(@ast);
                 pop(@ast);
-                my %newnode = ( tp => 'PROD', op => 'NEG', lhs => $lhs );
+                my %newnode = ( tp => 'EXPONENTIAL', op => 'NEG', lhs => $lhs );
                 push(@ast, \%newnode);
             } elsif ($ast[-1]{tp} eq 'PROD' &&
                      (scalar(@symbols) == 0 ||
@@ -253,6 +270,12 @@ sub compile_ast {
         my $asm = "NEG $slot $lhs_res";
         push(@$prog, $asm);
         return $slot;
+    } elsif ($root->{op} eq 'EXP') {
+        ($lhs_res >= 0 && $rhs_res >= 0) || die "malformed $root->{op}";
+        my $slot = ${$n_vars}++;
+        my $asm = "$root->{op} $slot $lhs_res $rhs_res";
+        push(@$prog, $asm);
+        return $slot;
     } else { die "unimplemented operator '$root->{op}'"; }
 }
 
@@ -291,6 +314,11 @@ sub exec_program {
         } elsif ($toks[0] eq 'NEG') {
             my $lhs = $mem[$toks[2]];
             $mem[$toks[1]] = -$lhs;
+        } elsif ($toks[0] eq 'EXP') {
+            my $lhs = $mem[$toks[2]];
+            my $rhs = $mem[$toks[3]];
+            my $res = $lhs ** $rhs;
+            $mem[$toks[1]] = $res;
         } else {
             die "unknown assembler token '$toks[0]'";
         }
