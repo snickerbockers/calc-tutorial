@@ -62,15 +62,12 @@ while (<>) {
                 $ast[-1]{tp} = 'PROD';
                 $ast[-1]{op} = 'LITERAL';
                 $ast[-1]{literal} = $ast[-1]{txt};
-            } elsif (scalar(@ast) >= 4 &&
-                     $ast[-1]{tp} eq ')' &&
-                     $ast[-2]{tp} eq 'SUM' &&
-                     $ast[-3]{tp} eq '(' &&
-                     $ast[-4]{tp} eq 'PROD') {
-                # implicit multiplication, eg 3(4)
-                pop(@ast);
+            } elsif (scalar(@ast) >= 2 &&
+                     $ast[-1]{tp} eq 'PROD' &&
+                     $ast[-2]{tp} eq 'PROD') {
+                # implicit multiplication
+                # eg 3(4 + 5) or (4 + 5)3 or (4 + 5)(1 + 2)
                 my $rhs = pop(@ast);
-                pop(@ast);
                 my $lhs = pop(@ast);
                 my %newnode = ( tp => 'PROD', op => 'MULTIPLY',
                                 lhs => $lhs, rhs => $rhs );
@@ -117,9 +114,9 @@ while (<>) {
                 push(@ast, \%newnode);
             } elsif ($ast[-1]{tp} eq 'PROD' &&
                      (scalar(@symbols) == 0 ||
-                      ($symbols[0]->[0] ne '*' &&
-                       $symbols[0]->[0] ne '/' &&
-                       $symbols[0]->[0] ne '('))) {
+                      $symbols[0]->[0] eq '+' ||
+                      $symbols[0]->[0] eq '-' ||
+                      $symbols[0]->[0] eq ')')) {
                 # reduce lone product to sum
                 $ast[-1]{tp} = 'SUM';
             } elsif (scalar(@ast) >= 3 &&
@@ -165,6 +162,9 @@ while (<>) {
         say $res;
     } else {
         say 'total of ' . scalar(@ast) . ' elements';
+        for (@ast) {
+            say "\t$_->{tp}";
+        }
         die "error: unable to reduce statement to a single root (final type is $ast[0]->{tp})";
     }
 }
